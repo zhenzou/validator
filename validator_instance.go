@@ -80,7 +80,7 @@ type Validate struct {
 	hasTagNameFunc   bool
 	tagNameFunc      TagNameFunc
 	structLevelFuncs map[reflect.Type]StructLevelFuncCtx
-	customFuncs      map[reflect.Type]CustomTypeFunc
+	customFuncs      sync.Map
 	aliases          map[string]string
 	validations      map[string]internalValidationFuncWrapper
 	transTagFunc     map[ut.Translator]map[string]TranslationFunc // map[<locale>]map[<tag>]TranslationFunc
@@ -149,7 +149,7 @@ func (v *Validate) SetTagName(name string) {
 
 // ValidateMapCtx validates a map using a map of validation rules and allows passing of contextual
 // validation validation information via context.Context.
-func (v Validate) ValidateMapCtx(ctx context.Context, data map[string]interface{}, rules map[string]interface{}) map[string]interface{} {
+func (v *Validate) ValidateMapCtx(ctx context.Context, data map[string]interface{}, rules map[string]interface{}) map[string]interface{} {
 	errs := make(map[string]interface{})
 	for field, rule := range rules {
 		if reflect.ValueOf(rule).Kind() == reflect.Map && reflect.ValueOf(data[field]).Kind() == reflect.Map {
@@ -276,12 +276,17 @@ func (v *Validate) RegisterStructValidationCtx(fn StructLevelFuncCtx, types ...i
 // NOTE: this method is not thread-safe it is intended that these all be registered prior to any validation
 func (v *Validate) RegisterCustomTypeFunc(fn CustomTypeFunc, types ...interface{}) {
 
-	if v.customFuncs == nil {
-		v.customFuncs = make(map[reflect.Type]CustomTypeFunc)
-	}
-
 	for _, t := range types {
-		v.customFuncs[reflect.TypeOf(t)] = fn
+		var rt reflect.Type
+		switch tt := t.(type) {
+		case reflect.Type:
+			rt = tt
+		case *reflect.Type:
+			rt = *tt
+		default:
+			rt = reflect.TypeOf(t)
+		}
+		v.customFuncs.Store(rt, fn)
 	}
 
 	v.hasCustomFuncs = true
